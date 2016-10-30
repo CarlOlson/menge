@@ -112,21 +112,24 @@ null sets."))
    "A set containing everything not in anti-set."))
 
 (defmethod print-object ((s inverse-set) stream)
-  (format stream "#<INVERSE-SET of ~A>" (slot-value s 'anti-set)))
+  (print-unreadable-object (s stream :type t)
+    (format stream "of ~A" (slot-value s 'anti-set))))
 
 (defclass union-set (base-set)
   ;; TODO base on hash
   ((members :initarg :members :type list)))
 
 (defmethod print-object ((s union-set) stream)
-  (format stream "#<UNION-SET ~{~A~^, ~}>" (slot-value s 'members)))
+  (print-unreadable-object (s stream :type t)
+    (format stream "~{~A~^, ~}" (slot-value s 'members))))
 
 (defclass list-set (base-set)
   ;; TODO seperate hash-set and bag
   ((members :initarg :members :type list :reader bag-contents)))
 
 (defmethod print-object ((s list-set) stream)
-  (format stream "#<LIST-SET ~{~A~^, ~}>" (slot-value s 'members)))
+  (print-unreadable-object (s stream :type t)
+    (format stream "~{~A~^, ~}" (slot-value s 'members))))
 
 (defun bag-of (x &rest xs)
   (make-instance 'list-set :members (cons x xs)))
@@ -151,12 +154,13 @@ null sets."))
       (make-instance 'int-set :lower a :upper b))))
 
 (defmethod print-object ((s int-set) stream)
-  (with-accessors ((l lower-bound) (u upper-bound)) s
-    (format stream "#<INT-SET ~A~A,~A~A>"
-	    (if (inclusive? l) "[" "(")
-	    (bound-value l)
-	    (bound-value u)
-	    (if (inclusive? u) "]" ")"))))
+  (print-unreadable-object (s stream :type t)
+    (with-accessors ((l lower-bound) (u upper-bound)) s
+      (format stream "~A~A,~A~A"
+	      (if (inclusive? l) "[" "(")
+	      (bound-value l)
+	      (bound-value u)
+	      (if (inclusive? u) "]" ")")))))
 
 (defgeneric eqls (t t)
   (:documentation
