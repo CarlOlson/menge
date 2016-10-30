@@ -7,7 +7,7 @@
   :description
   "Optimized sets for representing groups of numbers and infinite
 sets (not streams)."
-  :depends-on (:trivia)
+  :depends-on ()
   :serial t
   :components ((:file "package")
 	       (:file "menge")))
