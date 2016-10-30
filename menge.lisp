@@ -3,11 +3,17 @@
 
 ;; Helpers
 
-(defun length<=1 (seq)
-  (if (consp seq)
-      (or (null seq)
-	  (null (cdr seq)))
-      (<= (length seq) 1)))
+(defun length<= (seq x)
+  (cond
+    ((null seq) t)
+    ((<= x 0) nil)
+    ((consp seq)
+     (length<= (cdr seq) (1- x)))
+    (t
+     (<= (length seq) x))))
+
+(defun key-test (key test &rest args)
+  (apply test (mapcar key args)))
 
 ;; Bounds
 
@@ -38,7 +44,7 @@
 
 (defgeneric ordered<= (t t)
   (:documentation
-   "Returns true when (<= A B),  helper function for `ordered?'.")
+   "Returns true when (< A B), helper function.")
 
   (:method ((b bound) (n number))
     (with-accessors ((bval bound-value)) b
@@ -53,26 +59,23 @@
 	       (inclusive? b)))))
   
   (:method ((a bound) (b bound))
-    "Returns true when (<= A B).  If the values of A and B are equal,
-exclusive A is ordered before inclusive B."
     (with-accessors ((av bound-value)) a
       (with-accessors ((bv bound-value)) b
 	(or (< av bv)
 	    (and (= av bv)
-		 (or (inclusive? a)
-		     (exclusive? b)))))))
+		 (= (inclusive? a)
+		    (inclusive? b)))))))
   
   (:method ((a number) (b number))
     (<= a b)))
 
-;; TODO replace ordered? with between
-(defun ordered? (&rest xs)
-  "Are these well ordered?  Or lexicographically ordered for
-appropriate types?"
-  (cond
-    ((length<=1 xs) t)
-    ((ordered<= (first xs) (second xs))
-     (apply 'ordered? (cdr xs)))))
+(defun bounds-ordered? (a b c d)
+  (or (key-test 'bound-value '< a b c d)
+      (and (key-test 'bound-value '<= a b c d)
+	   (and (or (inclusive? a)
+		    (exclusive? b))
+		(or (inclusive? c)
+		    (exclusive? d))))))
 
 ;; Sets
 
@@ -143,8 +146,8 @@ null sets."))
 	    &optional (inclusive-a nil ia?) (inclusive-b nil ib?))
     (let ((a (if ia? (mkbound (bound-value a) inclusive-a) a))
 	  (b (if ib? (mkbound (bound-value b) inclusive-b) b)))
-      (unless (ordered? a b)
-	(error "lower-bound > upper-bound :: ~A > ~A" a b))
+      (unless (ordered<= a b)
+	(error "lower-bound >= upper-bound :: ~A >= ~A" a b))
       (make-instance 'int-set :lower a :upper b))))
 
 (defmethod print-object ((s int-set) stream)
@@ -170,12 +173,17 @@ in this library.  Should not be considered a public API.")
     t)
 
   (:method ((a union-set) (b union-set))
-    ;; TODO optimize
-    (and (length a)
-	 (length b)
-	 (every 'eqls
-		(slot-value a 'members)
-		(slot-value b 'members))))
+    (labels ((every-eqls (a b)
+	       (cond
+		 ((and (null a) (null b))
+		  t)
+		 ((or (null a) (null b))
+		  nil)
+		 ((eqls (car a) (car b))
+		  (every-eqls (cdr a) (cdr b))))))
+      (every-eqls
+       (slot-value a 'members)
+       (slot-value b 'members))))
   
   (:method ((a bound) (b bound))
     (and (eql (bound-value a)
@@ -210,8 +218,8 @@ in this library.  Should not be considered a public API.")
     (member x (slot-value s 'members) :test 'eql))
 
   (:method ((s int-set) (n integer))
-    ;; NOTE doesn't make sense unless numbers are exclusive
-    (ordered? (lower-bound s) n (upper-bound s))))
+    (and (ordered<= (lower-bound s) n)
+	 (ordered<= n (upper-bound s)))))
 
 (defgeneric insert (base-set t)
   (:documentation
@@ -236,7 +244,8 @@ memory.")
       (cond
 	((not (integerp x))
 	 (union s (bag-of x)))
-	((ordered? lower x upper)
+	((and (ordered<= lower x)
+	      (ordered<= x upper))
 	 s)
 	((= x (bound-value lower))
 	 (if (inclusive? lower)
@@ -248,7 +257,6 @@ memory.")
 	     (mkrange lower (mkbound x t))))
 	(t
 	 (union s (bag-of x)))))))
-    
 
 (defgeneric simplify (base-set base-set)
   (:documentation
@@ -264,17 +272,17 @@ memory.")
 	       (with-slots ((min1 lower-bound) (max1 upper-bound)) s1
 		 (with-slots ((min2 lower-bound) (max2 upper-bound)) s2
 		   (cond
-		     ((ordered? min1 min2 max2 max1)
+		     ((bounds-ordered? min1 min2 max2 max1)
 		      s1)
-		     ((ordered? min1 min2 max1)
+		     ((bounds-ordered? min1 min2 max1 max2)
 		      (mkrange min1 max2))
-		     ((ordered? min1 max2 max1)
+		     ((bounds-ordered? min2 min1 max2 max1)
 		      (mkrange min2 max1))
 		     ((and (= (bound-value max1)
 			      (bound-value min2))
 			   (or (inclusive? max1)
 			       (inclusive? min2)))
-		      ;; (x, y] ∪ [y, z)
+		      ;; (x, y) ∪ [y, z)
 		      (mkrange min1 max2)))))))
       (or (merge-bounds s1 s2)
 	  (merge-bounds s2 s1)
@@ -313,10 +321,6 @@ memory.")
 
   (:method ((s inverse-set))
     (slot-value s 'anti-set)))
-
-(defun make-key-test (key test)
-  (lambda (&rest args)
-    (apply test (mapcar key args))))
 
 (defmacro defalias (orig-name new-name)
   `(setf (symbol-function ',new-name)

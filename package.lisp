@@ -4,7 +4,7 @@
 (defpackage :menge
   (:use :cl)
   (:shadow :union)
-  (:export :mkbound :ordered?
+  (:export :mkbound
 	   :*null-set-instance*
 	   :*all-set-instance*
 	   :bag-of :mkrange

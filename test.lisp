@@ -16,12 +16,6 @@
   (is (eqls (mkbound 1 t) (mkbound 1 t)))
   (is (eqls (mkrange 1 10) (mkrange 1 10))))
 
-(deftest test-ordered? ()
-  (is (ordered? 1 1 2 (mkbound 2 t) (mkbound 3 t) 3))
-  (is (not (ordered? (mkbound 1 nil) 1)))
-  (is (ordered? (mkbound 1 t) (mkbound 1 nil)))
-  (is (not (ordered? (mkbound 1 nil) (mkbound 1 t)))))
-
 (deftest test-range ()
   (is (contains (mkrange 1 2) 1))
   (is (contains (mkrange 1 2) 2))
