@@ -7,5 +7,5 @@
   (:export :mkbound :ordered?
 	   :*null-set-instance*
 	   :*all-set-instance*
-	   :mkrange
-	   :contains :union :inverse))
+	   :bag-of :mkrange
+	   :contains :insert :union :inverse))

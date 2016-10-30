@@ -17,17 +17,17 @@
   (:documentation
    "A bound of one value, can be inclusive or exclusive."))
 
-(defun mkbound (value inclusive)
-  (make-instance 'bound
-		 :value value
-		 :inclusive inclusive))
-
 (defmethod print-object ((b bound) stream)
   (format stream "(~A ~A)"
 	  (bound-value b)
 	  (if (inclusive? b)
 	      "inclusive"
 	      "exclusive")))
+
+(defun mkbound (value inclusive)
+  (make-instance 'bound
+		 :value value
+		 :inclusive inclusive))
 
 (defgeneric exclusive? (bound)
   (:documentation
@@ -55,7 +55,6 @@
   (:method ((a bound) (b bound))
     "Returns true when (<= A B).  If the values of A and B are equal,
 exclusive A is ordered before inclusive B."
-    ;; TODO rethink exclusive/inclusive order for equal bounds
     (with-accessors ((av bound-value)) a
       (with-accessors ((bv bound-value)) b
 	(or (< av bv)
@@ -66,6 +65,7 @@ exclusive A is ordered before inclusive B."
   (:method ((a number) (b number))
     (<= a b)))
 
+;; TODO replace ordered? with between
 (defun ordered? (&rest xs)
   "Are these well ordered?  Or lexicographically ordered for
 appropriate types?"
@@ -112,16 +112,21 @@ null sets."))
   (format stream "#<INVERSE-SET of ~A>" (slot-value s 'anti-set)))
 
 (defclass union-set (base-set)
+  ;; TODO base on hash
   ((members :initarg :members :type list)))
 
 (defmethod print-object ((s union-set) stream)
   (format stream "#<UNION-SET ~{~A~^, ~}>" (slot-value s 'members)))
 
 (defclass list-set (base-set)
-  ((members :initarg :members :type list)))
+  ;; TODO seperate hash-set and bag
+  ((members :initarg :members :type list :reader bag-contents)))
 
 (defmethod print-object ((s list-set) stream)
   (format stream "#<LIST-SET ~{~A~^, ~}>" (slot-value s 'members)))
+
+(defun bag-of (x &rest xs)
+  (make-instance 'list-set :members (cons x xs)))
 
 ;; TODO should subclass real-set
 (defclass int-set (base-set)
@@ -155,12 +160,28 @@ null sets."))
    "Returns true if arguments are `eql'.  Or are equal objects defined
 in this library.  Should not be considered a public API.")
 
-  ;; TODO add eq optimization?
+  (:method ((a t) (b t))
+    (eql a b))
+  
+  (:method ((a null-set) (b null-set))
+    t)
+  
+  (:method ((a all-set) (b all-set))
+    t)
+
+  (:method ((a union-set) (b union-set))
+    ;; TODO optimize
+    (and (length a)
+	 (length b)
+	 (every 'eqls
+		(slot-value a 'members)
+		(slot-value b 'members))))
+  
   (:method ((a bound) (b bound))
     (and (eql (bound-value a)
-	      (bound-value b))
-	 (eq (inclusive? a)
-	     (inclusive? b))))
+  	      (bound-value b))
+  	 (eq (inclusive? a)
+  	     (inclusive? b))))
   
   (:method ((s1 int-set) (s2 int-set))
     (and (eqls (lower-bound s1)
@@ -191,6 +212,43 @@ in this library.  Should not be considered a public API.")
   (:method ((s int-set) (n integer))
     ;; NOTE doesn't make sense unless numbers are exclusive
     (ordered? (lower-bound s) n (upper-bound s))))
+
+(defgeneric insert (base-set t)
+  (:documentation
+   "Inserts an element into a set, returns a new set.  Sets may share
+memory.")
+
+  (:method ((s base-set) x)
+    (union s (bag-of x)))
+  
+  (:method ((s null-set) x)
+    (bag-of x))
+  
+  (:method ((s all-set) x)
+    *all-set-instance*)
+  
+  (:method ((s list-set) x)
+    (apply 'bag-of x (bag-contents x)))
+
+  (:method ((s int-set) x)
+    (let ((lower (lower-bound s))
+	  (upper (upper-bound s)))
+      (cond
+	((not (integerp x))
+	 (union s (bag-of x)))
+	((ordered? lower x upper)
+	 s)
+	((= x (bound-value lower))
+	 (if (inclusive? lower)
+	     s
+	     (mkrange (mkbound x t) upper)))
+	((= x (bound-value upper))
+	 (if (inclusive? upper)
+	     s
+	     (mkrange lower (mkbound x t))))
+	(t
+	 (union s (bag-of x)))))))
+    
 
 (defgeneric simplify (base-set base-set)
   (:documentation
@@ -240,7 +298,8 @@ in this library.  Should not be considered a public API.")
     *all-set-instance*)
 
   (:method ((s1 int-set) (s2 int-set))
-    (or (simplify s1 s2) nil)))
+    ;; (or (simplify s1 s2) nil)
+    (call-next-method)))
 
 (defgeneric inverse (base-set)
   (:documentation
