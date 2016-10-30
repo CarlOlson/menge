@@ -12,8 +12,8 @@
 ;; Bounds
 
 (defclass bound ()
-  ((value     :type t       :initarg :value)
-   (inclusive :type boolean :initarg :inclusive))
+  ((value     :type t       :initarg :value     :reader bound-value)
+   (inclusive :type boolean :initarg :inclusive :reader inclusive?))
   (:documentation
    "A bound of one value, can be inclusive or exclusive."))
 
@@ -29,45 +29,39 @@
 	      "inclusive"
 	      "exclusive")))
 
-(defgeneric bound-value (t)
-  (:documentation
-   "Returns a value as if the argument were a bound.  Not all
-types make sense.")
-
-  (:method ((x t))
-    x)
-
-  (:method ((b bound))
-    (bound-value (slot-value b 'value))))
-
-(defgeneric inclusive? (t)
-  (:documentation
-   "Is the value inclusive as a bound?")
-
-  (:method ((x t))
-    t)
-
-  (:method ((b bound))
-    (slot-value b 'inclusive)))
-
-(defgeneric exclusive? (t)
+(defgeneric exclusive? (bound)
   (:documentation
    "Is the value exclusive as a bound?")
 
-  (:method ((x t))
+  (:method ((x bound))
     (not (inclusive? x))))
 
-(defgeneric ordered< (t t)
+(defgeneric ordered<= (t t)
   (:documentation
-   "Helper function for `ordered?'.")
+   "Returns true when (<= A B),  helper function for `ordered?'.")
 
-  (:method ((a t) (b t))
-    "Returns true when (= A B) if A is inclusive, otherwise (< A B)."
+  (:method ((b bound) (n number))
+    (with-accessors ((bval bound-value)) b
+      (or (< bval n)
+	  (and (= bval n)
+	       (inclusive? b)))))
+
+  (:method ((n number) (b bound))
+    (with-accessors ((bval bound-value)) b
+      (or (< n bval)
+	  (and (= n bval)
+	       (inclusive? b)))))
+  
+  (:method ((a bound) (b bound))
+    "Returns true when (<= A B).  If the values of A and B are equal,
+exclusive A is ordered before inclusive B."
+    ;; TODO rethink exclusive/inclusive order for equal bounds
     (with-accessors ((av bound-value)) a
       (with-accessors ((bv bound-value)) b
 	(or (< av bv)
 	    (and (= av bv)
-		 (inclusive? a))))))
+		 (or (inclusive? a)
+		     (exclusive? b)))))))
   
   (:method ((a number) (b number))
     (<= a b)))
@@ -77,7 +71,7 @@ types make sense.")
 appropriate types?"
   (cond
     ((length<=1 xs) t)
-    ((ordered< (first xs) (second xs))
+    ((ordered<= (first xs) (second xs))
      (apply 'ordered? (cdr xs)))))
 
 ;; Sets
@@ -131,23 +125,22 @@ null sets."))
 
 ;; TODO should subclass real-set
 (defclass int-set (base-set)
-  ((lower-bound :initarg :lower :reader lower-bound)
-   (upper-bound :initarg :upper :reader upper-bound)))
+  ((lower-bound :type bound :initarg :lower :reader lower-bound)
+   (upper-bound :type bound :initarg :upper :reader upper-bound)))
 
-(defun mkrange (lower upper
-		&optional
-		  (lower-inclusive t lower-supplied?)
-		  (upper-inclusive t upper-supplied?))
-  (declare (type integer lower upper))
-  (let ((lower (if lower-supplied?
-		   (mkbound (bound-value lower) lower-inclusive)
-		   lower))
-	(upper (if upper-supplied?
-		   (mkbound (bound-value upper) upper-inclusive)
-		   upper)))
-    (unless (ordered? lower upper)
-      (error "lower > upper :: ~A > ~A" lower upper))
-    (make-instance 'int-set :lower lower :upper upper)))
+(defgeneric mkrange (t t &optional t t)
+  (:method ((a number) (b number)
+	    &optional (inclusive-a t) (inclusive-b t))
+    (mkrange (mkbound a inclusive-a)
+	     (mkbound b inclusive-b)))
+  
+  (:method ((a bound) (b bound)
+	    &optional (inclusive-a nil ia?) (inclusive-b nil ib?))
+    (let ((a (if ia? (mkbound (bound-value a) inclusive-a) a))
+	  (b (if ib? (mkbound (bound-value b) inclusive-b) b)))
+      (unless (ordered? a b)
+	(error "lower-bound > upper-bound :: ~A > ~A" a b))
+      (make-instance 'int-set :lower a :upper b))))
 
 (defmethod print-object ((s int-set) stream)
   (with-accessors ((l lower-bound) (u upper-bound)) s
@@ -163,7 +156,7 @@ null sets."))
 in this library.  Should not be considered a public API.")
 
   ;; TODO add eq optimization?
-  (:method ((a t) (b t))
+  (:method ((a bound) (b bound))
     (and (eql (bound-value a)
 	      (bound-value b))
 	 (eq (inclusive? a)
@@ -196,6 +189,7 @@ in this library.  Should not be considered a public API.")
     (member x (slot-value s 'members) :test 'eql))
 
   (:method ((s int-set) (n integer))
+    ;; NOTE doesn't make sense unless numbers are exclusive
     (ordered? (lower-bound s) n (upper-bound s))))
 
 (defgeneric simplify (base-set base-set)
