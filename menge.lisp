@@ -317,6 +317,9 @@ memory.")
   (:documentation
    "Creates an inverse set.")
 
+  (:method ((s base-set))
+    (make-instance 'inverse-set :not s))
+  
   (:method ((s all-set))
     *null-set-instance*)
 

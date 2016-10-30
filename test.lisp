@@ -49,4 +49,6 @@
   (is (eqls (inverse *null-set-instance*)
 	    *all-set-instance*))
   (is (eqls (inverse *all-set-instance*)
-	    *null-set-instance*)))
+	    *null-set-instance*))
+  (is (not (contains (inverse (bag-of 1)) 1)))
+  (is (contains (inverse (inverse (bag-of 1))) 1)))
