@@ -134,33 +134,48 @@ null sets."))
 (defun bag-of (x &rest xs)
   (make-instance 'list-set :members (cons x xs)))
 
-;; TODO should subclass real-set
+;; TODO should subclass real-set and discrete-set
 (defclass int-set (base-set)
-  ((lower-bound :type bound :initarg :lower :reader lower-bound)
-   (upper-bound :type bound :initarg :upper :reader upper-bound)))
+  ((lower-bound :type number :initarg :lower :reader lower-bound)
+   (upper-bound :type number :initarg :upper :reader upper-bound)
+   (increment   :type number :initarg :by    :reader increment)))
 
-(defgeneric mkrange (t t &optional t t)
+(defun multiple-of (number base &key (start 0))
+  (let ((rem (rem (- number start) base)))
+    (values (zerop rem) rem)))
+
+(defgeneric mkrange (t t &optional integer boolean boolean)
   (:method ((a number) (b number)
-	    &optional (inclusive-a t) (inclusive-b t))
+  	    &optional (by 1) (inclusive-a t) (inclusive-b t))
     (mkrange (mkbound a inclusive-a)
-	     (mkbound b inclusive-b)))
+  	     (mkbound b inclusive-b)
+	     by))
   
   (:method ((a bound) (b bound)
-	    &optional (inclusive-a nil ia?) (inclusive-b nil ib?))
-    (let ((a (if ia? (mkbound (bound-value a) inclusive-a) a))
-	  (b (if ib? (mkbound (bound-value b) inclusive-b) b)))
-      (unless (ordered<= a b)
-	(error "lower-bound >= upper-bound :: ~A >= ~A" a b))
-      (make-instance 'int-set :lower a :upper b))))
+	    &optional (by 1) (inclusive-a nil ia?) (inclusive-b nil ib?))
+    (let ((a-val (bound-value a))
+	  (b-val (bound-value b)))
+      (multiple-value-bind (truthy rem) (multiple-of b-val by :start a-val)
+	(unless truthy
+	  (decf b-val rem)
+	  (setq inclusive-b t ib? t)))
+      (let ((a (if ia? (mkbound a-val inclusive-a) a))
+	    (b (if ib? (mkbound b-val inclusive-b) b)))
+	(when (<= by 0)
+	  (error "increment <= 0"))
+	(unless (ordered<= a b)
+	  (error "lower-bound >= upper-bound :: ~A >= ~A" a b))
+	(make-instance 'int-set :lower a :upper b :by by)))))
 
 (defmethod print-object ((s int-set) stream)
   (print-unreadable-object (s stream :type t)
     (with-accessors ((l lower-bound) (u upper-bound)) s
-      (format stream "~A~A,~A~A"
+      (format stream "~A~A,~A~A:~A"
 	      (if (inclusive? l) "[" "(")
 	      (bound-value l)
 	      (bound-value u)
-	      (if (inclusive? u) "]" ")")))))
+	      (if (inclusive? u) "]" ")")
+	      (increment s)))))
 
 (defgeneric eqls (t t)
   (:documentation
@@ -199,7 +214,9 @@ in this library.  Should not be considered a public API.")
     (and (eqls (lower-bound s1)
 	       (lower-bound s2))
 	 (eqls (upper-bound s1)
-	       (upper-bound s2)))))
+	       (upper-bound s2))
+	 (eqls (increment s1)
+	       (increment s2)))))
 
 (defgeneric contains (base-set t)
   (:documentation
@@ -223,7 +240,10 @@ in this library.  Should not be considered a public API.")
 
   (:method ((s int-set) (n integer))
     (and (ordered<= (lower-bound s) n)
-	 (ordered<= n (upper-bound s)))))
+	 (ordered<= n (upper-bound s))
+	 (multiple-of n
+		      (increment s)
+		      :start (bound-value (lower-bound s))))))
 
 (defgeneric insert (base-set t)
   (:documentation
@@ -248,17 +268,17 @@ memory.")
       (cond
 	((not (integerp x))
 	 (union s (bag-of x)))
-	((and (ordered<= lower x)
-	      (ordered<= x upper))
+	((contains s x)
 	 s)
 	((= x (bound-value lower))
+	 ;; NOTE bounds should be multiple of increment
 	 (if (inclusive? lower)
 	     s
-	     (mkrange (mkbound x t) upper)))
+	     (mkrange (mkbound x t) upper (increment s))))
 	((= x (bound-value upper))
 	 (if (inclusive? upper)
 	     s
-	     (mkrange lower (mkbound x t))))
+	     (mkrange lower (mkbound x t) (increment s))))
 	(t
 	 (union s (bag-of x)))))))
 
@@ -272,6 +292,9 @@ memory.")
   ;; TODO how to simplify a union set?
   
   (:method ((s1 int-set) (s2 int-set))
+    (unless (and (zerop (increment s1))
+		 (zerop (increment s2)))
+      (error "cannot simplify increments other than one"))
     (labels ((merge-bounds (s1 s2)
 	       (with-slots ((min1 lower-bound) (max1 upper-bound)) s1
 		 (with-slots ((min2 lower-bound) (max2 upper-bound)) s2
