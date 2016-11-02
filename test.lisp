@@ -21,10 +21,17 @@
   (is (contains (mkrange 1 2) 2))
   (is (not (contains (mkrange 1 2 1 nil t) 1)))
   (is (not (contains (mkrange 1 2 1 t nil) 2)))
+  (is (eqls (mkrange 1 2 1 nil nil)
+	    *null-set-instance*))
   (signals error
     (mkrange 1 2 0))
   (signals error
     (mkrange 2 1)))
+
+(deftest test-range-reduction ()
+  (is (eqls (union (mkrange 0 10 2)
+		   (mkrange 1 10 2))
+	    (mkrange 0 10))))
 
 (deftest test-contains ()
   (is (contains *all-set-instance* 1))
@@ -38,7 +45,6 @@
 
 (deftest test-insert ()
   (is (contains (insert *null-set-instance* 1) 1))
-  (is (contains (insert (mkrange 1 2 1 nil nil) 1) 1))
   (is (eqls (insert (mkrange 1 2) 1) (mkrange 1 2)))
   (is (eqls (insert (mkrange 0 4 2 t nil) 4)
 	    (mkrange 0 4 2))))

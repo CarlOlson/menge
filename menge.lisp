@@ -15,6 +15,31 @@
 (defun key-test (key test &rest args)
   (apply test (mapcar key args)))
 
+(defun multiple-of (number base &key (start 0))
+  (let ((rem (rem (- number start) base)))
+    (values (zerop rem) rem)))
+
+(defun create-wheel (s1 m1 s2 m2)
+  (labels ((multiples-of (number start stop)
+	     (loop
+		for multiple from start to stop by number
+		collect multiple)))
+    (let* ((lcm (lcm m1 m2))
+	   (max (+ lcm (max s1 s2)))
+	   (multiples (append (multiples-of m1 s1 max)
+			      (multiples-of m2 s2 max)))
+	   (multiples (sort (remove-duplicates multiples)
+			    '<))
+	   (multiples (remove-if (lambda (x) (< x (max s1 s2)))
+				 multiples)))
+      (loop
+	 for (a b) on multiples
+	 when b collect (- b a) into wheel
+	 finally (return (if (and wheel
+				  (apply '= wheel))
+			     (list (car wheel))
+			     wheel))))))
+
 ;; Bounds
 
 (defclass bound ()
@@ -35,11 +60,14 @@
 		 :value value
 		 :inclusive inclusive))
 
-(defgeneric exclusive? (bound)
+(defmethod bound-value ((x integer)) x)
+(defmethod inclusive?  ((x integer)) t)
+
+(defgeneric exclusive? (t)
   (:documentation
    "Is the value exclusive as a bound?")
 
-  (:method ((x bound))
+  (:method ((x t))
     (not (inclusive? x))))
 
 (defgeneric ordered<= (t t)
@@ -116,7 +144,6 @@ null sets."))
     (format stream "of ~A" (slot-value s 'anti-set))))
 
 (defclass union-set (base-set)
-  ;; TODO base on hash
   ((members :initarg :members :type list)))
 
 (defmethod print-object ((s union-set) stream)
@@ -124,7 +151,6 @@ null sets."))
     (format stream "~{~A~^, ~}" (slot-value s 'members))))
 
 (defclass list-set (base-set)
-  ;; TODO seperate hash-set and bag
   ((members :initarg :members :type list :reader bag-contents)))
 
 (defmethod print-object ((s list-set) stream)
@@ -136,36 +162,29 @@ null sets."))
 
 ;; TODO should subclass real-set and discrete-set
 (defclass int-set (base-set)
-  ((lower-bound :type number :initarg :lower :reader lower-bound)
-   (upper-bound :type number :initarg :upper :reader upper-bound)
-   (increment   :type number :initarg :by    :reader increment)))
-
-(defun multiple-of (number base &key (start 0))
-  (let ((rem (rem (- number start) base)))
-    (values (zerop rem) rem)))
+  ((lower-bound :type integer :initarg :lower :reader lower-bound)
+   (upper-bound :type integer :initarg :upper :reader upper-bound)
+   (increment   :type integer :initarg :by    :reader increment)))
 
 (defgeneric mkrange (t t &optional integer boolean boolean)
-  (:method ((a number) (b number)
+  (:method ((a integer) (b integer)
   	    &optional (by 1) (inclusive-a t) (inclusive-b t))
-    (mkrange (mkbound a inclusive-a)
-  	     (mkbound b inclusive-b)
-	     by))
-  
-  (:method ((a bound) (b bound)
-	    &optional (by 1) (inclusive-a nil ia?) (inclusive-b nil ib?))
-    (let ((a-val (bound-value a))
-	  (b-val (bound-value b)))
-      (multiple-value-bind (truthy rem) (multiple-of b-val by :start a-val)
-	(unless truthy
-	  (decf b-val rem)
-	  (setq inclusive-b t ib? t)))
-      (let ((a (if ia? (mkbound a-val inclusive-a) a))
-	    (b (if ib? (mkbound b-val inclusive-b) b)))
-	(when (<= by 0)
-	  (error "increment <= 0"))
-	(unless (ordered<= a b)
-	  (error "lower-bound >= upper-bound :: ~A >= ~A" a b))
-	(make-instance 'int-set :lower a :upper b :by by)))))
+    (when (<= by 0)
+      (error "increment <= 0"))
+    (when (>= a b)
+      (error "lower-bound >= upper-bound :: ~A >= ~A" a b))
+    (unless inclusive-a
+      (incf a by)
+      (setq inclusive-a t))
+    (unless inclusive-b
+      (decf b)
+      (setq inclusive-b t))
+    (multiple-value-bind (truthy rem) (multiple-of b by :start a)
+      (unless truthy
+	(decf b rem)))
+    (if (>= a b)
+	*null-set-instance*
+	(make-instance 'int-set :lower a :upper b :by by))))
 
 (defmethod print-object ((s int-set) stream)
   (print-unreadable-object (s stream :type t)
@@ -176,6 +195,22 @@ null sets."))
 	      (bound-value u)
 	      (if (inclusive? u) "]" ")")
 	      (increment s)))))
+
+(defgeneric equal-bounds (int-set int-set)
+  (:documentation
+   "Do two sets have equal upper and lower bounds?")
+  
+  (:method ((s1 int-set) (s2 int-set))
+    (let ((inc1 (increment s1))
+	  (inc2 (increment s2))
+	  (low1 (lower-bound s1))
+	  (low2 (lower-bound s2))
+	  (high1 (upper-bound s1))
+	  (high2 (upper-bound s2)))
+      (and (or (> low1 (- low2 inc2))
+	       (> low2 (- low1 inc1)))
+	   (or (< high1 (+ high2 inc2))
+	       (< high2 (+ high1 inc1)))))))
 
 (defgeneric eqls (t t)
   (:documentation
@@ -211,10 +246,7 @@ in this library.  Should not be considered a public API.")
   	     (inclusive? b))))
   
   (:method ((s1 int-set) (s2 int-set))
-    (and (eqls (lower-bound s1)
-	       (lower-bound s2))
-	 (eqls (upper-bound s1)
-	       (upper-bound s2))
+    (and (equal-bounds s1 s2)
 	 (eqls (increment s1)
 	       (increment s2)))))
 
@@ -243,7 +275,7 @@ in this library.  Should not be considered a public API.")
 	 (ordered<= n (upper-bound s))
 	 (multiple-of n
 		      (increment s)
-		      :start (bound-value (lower-bound s))))))
+		      :start (lower-bound s)))))
 
 (defgeneric insert (base-set t)
   (:documentation
@@ -264,21 +296,26 @@ memory.")
 
   (:method ((s int-set) x)
     (let ((lower (lower-bound s))
-	  (upper (upper-bound s)))
+	  (upper (upper-bound s))
+	  (inc   (increment s)))
       (cond
 	((not (integerp x))
 	 (union s (bag-of x)))
 	((contains s x)
 	 s)
-	((= x (bound-value lower))
-	 ;; NOTE bounds should be multiple of increment
+	((= x lower)
 	 (if (inclusive? lower)
 	     s
-	     (mkrange (mkbound x t) upper (increment s))))
-	((= x (bound-value upper))
+	     (mkrange (mkbound x t) upper inc)))
+	((= x upper)
+	 ;; NOTE upper bound should be multiple of increment
 	 (if (inclusive? upper)
 	     s
-	     (mkrange lower (mkbound x t) (increment s))))
+	     (mkrange lower (mkbound x t) inc)))
+	((= x (- lower inc))
+	 (mkrange x upper inc))
+	((= x (+ upper inc))
+	 (mkrange lower x inc))
 	(t
 	 (union s (bag-of x)))))))
 
@@ -292,10 +329,8 @@ memory.")
   ;; TODO how to simplify a union set?
   
   (:method ((s1 int-set) (s2 int-set))
-    (unless (and (zerop (increment s1))
-		 (zerop (increment s2)))
-      (error "cannot simplify increments other than one"))
     (labels ((merge-bounds (s1 s2)
+	       ;; NOTE only works for increments of one
 	       (with-slots ((min1 lower-bound) (max1 upper-bound)) s1
 		 (with-slots ((min2 lower-bound) (max2 upper-bound)) s2
 		   (cond
@@ -311,9 +346,37 @@ memory.")
 			       (inclusive? min2)))
 		      ;; (x, y) ∪ [y, z)
 		      (mkrange min1 max2)))))))
-      (or (merge-bounds s1 s2)
-	  (merge-bounds s2 s1)
-	  (call-next-method)))))
+      (let ((inc1  (increment s1))
+	    (inc2  (increment s2))
+	    (low1  (lower-bound s1))
+	    (low2  (lower-bound s2))
+	    (high1 (upper-bound s1))
+	    (high2 (upper-bound s2)))
+	(cond
+	  ((= inc1 inc2 1)
+	   ;; merge when increment is one
+	   (or (merge-bounds s1 s2)
+	       (merge-bounds s2 s1)))
+	  
+	  ((and (or (= (gcd inc1 inc2) 1)
+		    (= inc1 inc2))
+		(equal-bounds s1 s2))
+	   ;; increments are coprime
+	   (let ((wheel (create-wheel low1 inc1 low2 inc2)))
+	     (when (length<= wheel 1)
+	       (assert (= (car wheel) 1))
+	       ;; two ranges fill bounds
+	       (mkrange (min low1 low2)
+			(max high1 high2)))))
+	  
+	  ((and (or (multiple-of inc1 inc2)
+		    (multiple-of inc2 inc1))
+		(/= inc1 inc2))
+	   (when (equal-bounds s1 s2)
+	     ;; larger increment is multiple of smaller
+	     (mkrange (min low1 low2)
+		      (max high1 high2)
+		      (min inc1 inc2)))))))))
 
 (defgeneric union (base-set base-set)
   (:documentation
@@ -333,8 +396,8 @@ memory.")
     *all-set-instance*)
 
   (:method ((s1 int-set) (s2 int-set))
-    ;; (or (simplify s1 s2) nil)
-    (call-next-method)))
+    (or (simplify s1 s2)
+	(call-next-method))))
 
 (defgeneric inverse (base-set)
   (:documentation
