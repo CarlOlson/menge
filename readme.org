@@ -3,5 +3,6 @@ Menge (set in German) is a Common Lisp library for dealing with sets.
 It has optimized sets for representing groups of numbers and infinite
 sets (not streams).
 
-It is a work in progress.  It will eventually be used as an
-abstraction for patterns in a pattern matching language.
+It is exploratory work, it will probably be rewritten.  It will
+eventually be used as an abstraction for patterns in a pattern
+matching language.
