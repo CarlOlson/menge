@@ -10,17 +10,23 @@
   (run-package-tests :package     :menge.test
 		     :interactive interactive))
 
+(defmacro is-not (expr)
+  `(is (not ,expr)))
+
+(defmacro doesnt (expr)
+  `(is-not ,expr))
+
 (deftest test-eqls ()
   (is (eqls 1 1))
-  (is (not (eqls 1 1.0)))
+  (is-not (eqls 1 1.0))
   (is (eqls (mkbound 1 t) (mkbound 1 t)))
   (is (eqls (mkrange 1 10) (mkrange 1 10))))
 
 (deftest test-range ()
   (is (contains (mkrange 1 2) 1))
   (is (contains (mkrange 1 2) 2))
-  (is (not (contains (mkrange 1 2 1 nil t) 1)))
-  (is (not (contains (mkrange 1 2 1 t nil) 2)))
+  (doesnt (contains (mkrange 1 2 1 nil t) 1))
+  (doesnt (contains (mkrange 1 2 1 t nil) 2))
   (is (eqls (mkrange 1 2 1 nil nil)
 	    *null-set-instance*))
   (signals error
@@ -31,15 +37,18 @@
 (deftest test-range-reduction ()
   (is (eqls (union (mkrange 0 10 2)
 		   (mkrange 1 10 2))
-	    (mkrange 0 10))))
+	    (mkrange 0 10)))
+  (doesnt (contains (union (mkrange 0 10 2)
+			   (mkrange 1 5 2))
+		    7)))
 
 (deftest test-contains ()
   (is (contains *all-set-instance* 1))
-  (is (not (contains *null-set-instance* 1)))
+  (is-not (contains *null-set-instance* 1))
   (is (contains (mkrange 1 10) 5))
-  (is (not (contains (mkrange 1 10) 15)))
+  (is-not (contains (mkrange 1 10) 15))
   (is (contains (mkrange 1 10 2) 3))
-  (is (not (contains (mkrange 1 10 2) 4)))
+  (is-not (contains (mkrange 1 10 2) 4))
   (dolist (x '(1 2 3))
     (is (contains (bag-of 1 2 3) x))))
 
@@ -68,5 +77,5 @@
 	    *all-set-instance*))
   (is (eqls (inverse *all-set-instance*)
 	    *null-set-instance*))
-  (is (not (contains (inverse (bag-of 1)) 1)))
+  (is-not (contains (inverse (bag-of 1)) 1))
   (is (contains (inverse (inverse (bag-of 1))) 1)))
