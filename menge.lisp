@@ -3,6 +3,10 @@
 
 ;; Helpers
 
+(defmacro aif (test then &optional else)
+  `(let ((it ,test))
+     (if it ,then ,else)))
+
 (defun length<= (seq x)
   (cond
     ((null seq) t)
@@ -250,6 +254,18 @@ in this library.  Should not be considered a public API.")
 	 (eqls (increment s1)
 	       (increment s2)))))
 
+(defgeneric members (base-set)
+  (:documentation
+   "Returns a list of all sets in a compound set.  Only returns sets
+that are part of a union, not sets as members.")
+
+  (:method ((s base-set))
+    (list s))
+  
+  (:method ((s union-set))
+    (reduce #'append
+	    (mapcar 'members (slot-value s 'members)))))
+
 (defgeneric contains (base-set t)
   (:documentation
    "Checks if a set contains a value.")
@@ -319,6 +335,27 @@ memory.")
 	(t
 	 (union s (bag-of x)))))))
 
+(defun simplify-sets (sets)
+  (labels ((rec (x rest)
+	     (let (simplified)
+	       (values
+		(mapcar (lambda (y)
+			  (aif (and (not simplified)
+				    (simplify x y))
+			       (prog1 it
+				 (setq simplified t))
+			       y))
+			rest)
+		simplified))))
+    (loop
+       for (x . sets) on sets
+       do (multiple-value-bind (new-sets simplified)
+	      (rec x sets)
+	    (when simplified
+	      (return (simplify-sets (append prev new-sets)))))
+       collecting x into prev
+       finally (return prev))))
+
 (defgeneric simplify (base-set base-set)
   (:documentation
    "Returns a simplified union or nil.")
@@ -326,49 +363,55 @@ memory.")
   (:method ((s1 base-set) (s2 base-set))
     nil)
 
-  ;; TODO how to simplify a union set?
+  (:method ((s1 union-set) (s2 union-set))
+    (let ((members (append (members s1) (members s2))))
+      (make-instance 'union-set :members members)))
   
   (:method ((s1 int-set) (s2 int-set))
-    (labels ((merge-bounds (s1 s2)
+    (labels ((merge-bounds (s1 s2 inc)
 	       ;; NOTE only works for increments of one
 	       (with-slots ((min1 lower-bound) (max1 upper-bound)) s1
 		 (with-slots ((min2 lower-bound) (max2 upper-bound)) s2
 		   (cond
-		     ((bounds-ordered? min1 min2 max2 max1)
+		     ((and (bounds-ordered? min1 min2 max2 max1)
+			   (contains s1 min2))
 		      s1)
 		     ((bounds-ordered? min1 min2 max1 max2)
-		      (mkrange min1 max2))
+		      (mkrange min1 max2 inc))
 		     ((bounds-ordered? min2 min1 max2 max1)
-		      (mkrange min2 max1))
+		      (mkrange min2 max1 inc))
 		     ((and (= (bound-value max1)
 			      (bound-value min2))
 			   (or (inclusive? max1)
 			       (inclusive? min2)))
 		      ;; (x, y) ∪ [y, z)
-		      (mkrange min1 max2)))))))
+		      (mkrange min1 max2 inc)))))))
       (let ((inc1  (increment s1))
 	    (inc2  (increment s2))
 	    (low1  (lower-bound s1))
 	    (low2  (lower-bound s2))
 	    (high1 (upper-bound s1))
 	    (high2 (upper-bound s2)))
+	;; TODO split overlapping ranges
 	(cond
 	  ((= inc1 inc2 1)
 	   ;; merge when increment is one
-	   (or (merge-bounds s1 s2)
-	       (merge-bounds s2 s1)))
-	  
+	   (or (merge-bounds s1 s2 1)
+	       (merge-bounds s2 s1 1)))
 	  ((and (or (= (gcd inc1 inc2) 1)
 		    (= inc1 inc2))
 		(equal-bounds s1 s2))
-	   ;; increments are coprime
+	   ;; increments are coprime or equal
 	   (let ((wheel (create-wheel low1 inc1 low2 inc2)))
+	     ;; TODO (length wheel) > 1
 	     (when (length<= wheel 1)
-	       (assert (= (car wheel) 1))
 	       ;; two ranges fill bounds
 	       (mkrange (min low1 low2)
-			(max high1 high2)))))
-	  
+			(max high1 high2)
+			(car wheel)))))
+	  ((= inc1 inc2)
+	   (or (merge-bounds s1 s2 inc1)
+	       (merge-bounds s2 s1 inc1)))
 	  ((and (or (multiple-of inc1 inc2)
 		    (multiple-of inc2 inc1))
 		(/= inc1 inc2))
@@ -383,8 +426,12 @@ memory.")
    "Returns a union of the two sets given.")
 
   (:method ((s1 base-set) (s2 base-set))
-    ;; TODO should simplify?
-    (make-instance 'union-set :members (list s1 s2)))
+    (let* ((members (append (members s1) (members s2)))
+	   (sets    (simplify-sets members)))
+      (if (length<= sets 1)
+	  (car sets)
+	  (make-instance 'union-set
+			 :members sets))))
 
   (:method ((s1 null-set) (s2 null-set))
     *null-set-instance*)
