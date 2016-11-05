@@ -365,7 +365,7 @@ memory.")
 
   (:method ((s1 union-set) (s2 union-set))
     (let ((members (append (members s1) (members s2))))
-      (make-instance 'union-set :members members)))
+      (make-instance 'union-set :members (simplify-sets members))))
   
   (:method ((s1 int-set) (s2 int-set))
     (labels ((merge-bounds (s1 s2 inc)
@@ -433,6 +433,12 @@ memory.")
 	  (make-instance 'union-set
 			 :members sets))))
 
+  (:method ((s1 null-set) (s2 base-set))
+    s2)
+
+  (:method ((s1 base-set) (s2 null-set))
+    s1)
+  
   (:method ((s1 null-set) (s2 null-set))
     *null-set-instance*)
   

@@ -83,7 +83,10 @@
     (dolist (x '(1 2 3 4))
       (is (contains (union set3 set4) x)))
     (dotimes (x 10)
-      (is (contains (union set5 set6) x)))))
+      (is (contains (union set5 set6) x)))
+    (is (union *null-set-instance*
+	       (bag-of 1))
+	(bag-of 1))))
 
 (deftest test-inverse ()
   (is (eqls (inverse *null-set-instance*)
