@@ -96,3 +96,7 @@
   (is-not (contains (inverse (bag-of 1)) 1))
   (is (contains (inverse (inverse (bag-of 1))) 1)))
 
+(deftest test-regression ()
+  (is (not (eqls (union (mkrange 0 10 2)
+			(mkrange 7 11 2))
+		 (mkrange 0 10 2)))))
